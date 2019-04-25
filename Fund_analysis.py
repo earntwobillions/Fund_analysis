@@ -11,6 +11,7 @@ import pandas as pd
 import numpy as np
 import math
 from sklearn import linear_model
+import scipy.stats as st
 import pylab
 import itertools
 pylab.mpl.rcParams['font.sans-serif'] = ['SimHei'] # 载入中文字体，画图时使用
@@ -90,6 +91,7 @@ class Fund_analysis():
         self.funddata = self.funddata/self.funddata[0]
         self.benchmark = self.benchmark/self.benchmark[0]
         self.excess = self.funddata - self.benchmark
+        self.b_returns = self.benchmark.pct_change().dropna()        
         self.show_data = pd.DataFrame({self.fundname:self.funddata,self.ben_name:self.benchmark,'超额收益':self.excess})
 
     # 计算年化收益率
@@ -133,12 +135,16 @@ class Fund_analysis():
     
     # 计算alpha和beta
     def alpha_beta(self):
-        self.b_returns = self.benchmark.pct_change().dropna()
         reg = linear_model.LinearRegression()
         reg.fit(self.b_returns.values.reshape(-1,1),self.returns.values)
         self.alpha = reg.intercept_
         self.beta = reg.coef_[0]
     
+    # 计算基金和基准收益率的相关性
+    def correlation(self):
+        self.corr = self.returns.corr(self.b_returns)
+        self.corr_spearman = st.spearmanr(self.returns,self.b_returns)[0]
+        
     # 计算特雷诺比率
     def treynor_ratio(self):
         self.treynor = (self.ann_return - self.risk_free_r) / self.beta
@@ -210,7 +216,7 @@ class Fund_analysis():
         for i in range(len(self.y_rolling)) :
             self.y_rolling.iloc[i] = temp1.iloc[i]/self.funddata.iloc[i] - 1
         self.y_rolling.name = '一年滚动收益'
-        # 将滚动年化收益分位十个分位
+        # 将滚动年化收益分为十个分位
         quantile = round(self.y_rolling.quantile(np.arange(0.1,1,0.1)),2)
         self.r_prob = pd.DataFrame({'年度滚动收益率' : quantile.map(lambda x: format(x, '.0%')).values,'收益之上发生概率':np.NaN})
         for i in range(self.r_prob.shape[0]) :
@@ -239,7 +245,8 @@ class Fund_analysis():
         self.profit_loss()
         self.income_interval()
         self.rolling_revenue()
-        self.result = pd.Series(index=['基金运行时长（年）','年化收益率',\
+        self.correlation()
+        self.result = pd.Series(index=['基金运行时长（年）','年化收益率','超额收益率',\
                         '最大回撤','最大回撤发生日期','超额收益最大回撤','超额收益最大回撤发生日期','年化标准差','年化下行标准差','夏普比率',\
                         '卡玛比率','超额收益卡玛比率','特雷诺比率','索提诺比率','信息比率',\
                         '运行总期数','盈利期数','盈利期占比','亏损期数','亏损期占比',\
@@ -247,6 +254,7 @@ class Fund_analysis():
                         '基金总收益','近一月收益','近三月收益','近半年收益','年初至今收益','近一年收益'])
         self.result['基金运行时长（年）'] = round(self.years,1)
         self.result['年化收益率'] = format(self.ann_return, '.2%')
+        self.result['超额收益率'] = format(self.ann_return-self.ben_ann_return, '.2%')
         self.result['最大回撤'] = format(self.max_drawdown, '.2%')
         self.result['最大回撤发生日期'] = self.max_draw_date.strftime('%Y-%m-%d')
         self.result['超额收益最大回撤'] = format(self.max_drawdown_rel, '.2%')
@@ -269,6 +277,8 @@ class Fund_analysis():
         self.result['平均收益'] = format(self.average_revenue, '.2%')
         self.result['Alpha'] = round(self.alpha,4)
         self.result['Beta'] = round(self.beta,4)
+        self.result['相关性']=round(self.corr,4)
+        self.result['秩相关性']=self.corr_spearman        
         self.result['基金总收益'] = format(self.profit, '.2%')
         self.result['近一月收益'] = format(self.l_month, '.2%')
         self.result['近三月收益'] = format(self.l_3month, '.2%')
@@ -276,16 +286,20 @@ class Fund_analysis():
         self.result['年初至今收益'] = format(self.ytd, '.2%')
         self.result['近一年收益'] = format(self.l_year, '.2%')
         self.result = pd.DataFrame({self.fundname:self.result})
-        print(self.fundname + '指标计算完毕')
+        #print(self.fundname + '指标计算完毕')
 
     # 部分指标计算，针对只用到少数功能时
     def local_cal(self):
         self.get_days()
-        self.annual_standard()
+        self.Normalization()
         self.get_Annual_earnings()
+        self.get_B_Annual_earnings()
+        self.annual_standard()
         self.sharpe_ratio()
         self.maxDrawdown()
+        self.maxDrawdown_rel()
         self.calmar_Ratio()
+        self.information_Ratio()
     
     # 输出结果到当前工作路径下
     def save_output(self):
